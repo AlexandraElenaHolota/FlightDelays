@@ -1,5 +1,6 @@
 from database.DB_connect import DBConnect
 from model.airport import Airport
+from model.connessione import Connessione
 
 
 class DAO():
@@ -17,6 +18,79 @@ class DAO():
 
         for row in cursor:
             result.append(Airport(**row))
+
+        cursor.close()
+        conn.close()
+        return result
+
+    @staticmethod
+    def getAllNodes(Nmin, idMap):
+        conn = DBConnect.get_connection()
+
+        result = []
+
+        cursor = conn.cursor(dictionary=True)
+        query = """SELECT tmp.ID, tmp.IATA_CODE, COUNT(*) as n 
+                        FROM (SELECT a.ID , a.IATA_CODE , f.AIRLINE_ID, COUNT(*) as n 
+                        FROM airports a , flights f 
+                        WHERE a.ID = f.ORIGIN_AIRPORT_ID or a.ID =f.DESTINATION_AIRPORT_ID 
+                        GROUP by a.ID , a.IATA_CODE , f.AIRLINE_ID) as tmp
+                        GROUP BY tmp.ID, tmp.IATA_CODE
+                        HAVING n>=%s"""
+
+        cursor.execute(query, (Nmin,))
+
+        for row in cursor:
+            result.append(idMap[row["ID"]])
+
+        cursor.close()
+        conn.close()
+        return result
+
+    @staticmethod
+    def getAllEdges(idMap):
+        conn = DBConnect.get_connection()
+
+        result = []
+
+        cursor = conn.cursor(dictionary=True)
+        query = """SELECT ORIGIN_AIRPORT_ID , DESTINATION_AIRPORT_ID, COUNT(*) as n
+                    FROM flights f 
+                    GROUP by ORIGIN_AIRPORT_ID , DESTINATION_AIRPORT_ID 
+                    ORDER by ORIGIN_AIRPORT_ID , DESTINATION_AIRPORT_ID """
+
+        cursor.execute(query,)
+
+        for row in cursor:
+            result.append(Connessione(idMap[row["ORIGIN_AIRPORT_ID"]], idMap[row["DESTINATION_AIRPORT_ID"]], idMap[row["n"]] ))
+
+        cursor.close()
+        conn.close()
+        return result
+
+    @staticmethod
+    def getAllEdgesV2(idMap):
+        conn = DBConnect.get_connection()
+
+        result = []
+
+        cursor = conn.cursor(dictionary=True)
+        query = """SELECT t1.ORIGIN_AIRPORT_ID , t1.DESTINATION_AIRPORT_ID, COALESCE(t1.n,0)+COALESCE(t2.n,0) as peso
+                    FROM (SELECT ORIGIN_AIRPORT_ID , DESTINATION_AIRPORT_ID, COUNT(*) as n
+                    FROM flights f 
+                    GROUP by ORIGIN_AIRPORT_ID , DESTINATION_AIRPORT_ID 
+                    ORDER by ORIGIN_AIRPORT_ID , DESTINATION_AIRPORT_ID ) t1 
+                    LEFT JOIN (SELECT ORIGIN_AIRPORT_ID , DESTINATION_AIRPORT_ID, COUNT(*) as n
+                    FROM flights f 
+                    GROUP by ORIGIN_AIRPORT_ID , DESTINATION_AIRPORT_ID 
+                    ORDER by ORIGIN_AIRPORT_ID , DESTINATION_AIRPORT_ID ) t2
+                    ON t1.ORIGIN_AIRPORT_ID=t2.DESTINATION_AIRPORT_ID and t2.ORIGIN_AIRPORT_ID=t1.DESTINATION_AIRPORT_ID
+                    WHERE t1.ORIGIN_AIRPORT_ID<t1.DESTINATION_AIRPORT_ID or t2.ORIGIN_AIRPORT_ID is null"""
+
+        cursor.execute(query, )
+
+        for row in cursor:
+            result.append(Connessione(idMap[row["ORIGIN_AIRPORT_ID"]], idMap[row["DESTINATION_AIRPORT_ID"]], row["peso"]))
 
         cursor.close()
         conn.close()
